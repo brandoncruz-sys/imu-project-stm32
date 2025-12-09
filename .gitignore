@@ -1,0 +1,24 @@
+# --- PlatformIO (Vital para STM32) ---
+.pio
+.pioenvs
+.piolibdeps
+
+# --- Configuración de usuario de VS Code ---
+.vscode/
+*.code-workspace
+
+# --- Compilación de C (Binarios y Objetos) ---
+*.elf
+*.bin
+*.hex
+*.map
+*.o
+*.a
+*.lst
+
+# --- Archivos del sistema ---
+.DS_Store
+Thumbs.db
+
+# --- Depuración ---
+*.svd
