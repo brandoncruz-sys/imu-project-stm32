@@ -1,7 +1,23 @@
 #include "stm32l4xx_hal.h"
-#include "mpu6050.h" // Incluimos tu driver
 #include <stdio.h>
 #include <string.h>
+
+// --- SELECCIÓN DE SENSOR (Descomenta el que vayas a usar) ---
+// #define USE_MPU6050
+#define USE_MMA845X
+// -----------------------------------------------------------
+
+#ifdef USE_MPU6050
+    #include "mpu6050.h"
+    // Dirección por defecto del MPU6050
+    #define SENSOR_ADDR (0xD0) 
+#endif
+
+#ifdef USE_MMA845X
+    #include "mma845x.h"
+    // Dirección por defecto del MMA845x (SA0=1 -> 0x1D<<1 = 0x3A)
+    #define SENSOR_ADDR (0x1D << 1)
+#endif
 
 // Variables Globales de Hardware
 I2C_HandleTypeDef hi2c1;
@@ -9,14 +25,15 @@ UART_HandleTypeDef huart2;
 
 // Variables para datos crudos
 int16_t accel_raw[3];
-int16_t gyro_raw[3];
-int16_t temp_raw;
+int16_t gyro_raw[3]; // Solo se usará en MPU6050
+int16_t temp_raw;    // Solo se usará en MPU6050
 
 // Prototipos Hardware
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
+void Error_Handler(void);
 
 // Redirección de printf
 int _write(int file, char *ptr, int len)
@@ -35,20 +52,39 @@ int main(void)
 
     HAL_Delay(100);
     
-    // Inicializamos pasando el puntero de I2C1
-    printf("Iniciando MPU6050...\r\n");
-    MPU6050_Init(&hi2c1);
+    // --- INICIALIZACIÓN ---
+    #ifdef USE_MPU6050
+        printf("Iniciando MPU6050...\r\n");
+        MPU6050_Init(&hi2c1, SENSOR_ADDR); // Si usaste mi versión actualizada con direccion variable
+        // O usa MPU6050_Init(&hi2c1); si mantuviste la versión vieja
+    #endif
+
+    #ifdef USE_MMA845X
+        printf("Iniciando MMA845x...\r\n");
+        if (MMA845x_Init(&hi2c1, SENSOR_ADDR) != 0) {
+            printf("Error: No se detecta el MMA845x\r\n");
+        }
+    #endif
 
     while (1)
     {
-        // Leemos pasando el puntero de I2C1
-        MPU6050_Read_All(&hi2c1, accel_raw, gyro_raw, &temp_raw);
+        // --- LECTURA ---
         
-        // Convertimos
-        Convert(accel_raw, gyro_raw);
-        
-        // Imprimimos en formato CSV (Raw + Convertido si quieres)
-        // Aquí imprimo los RAW como en tu ejemplo original:
+        #ifdef USE_MPU6050
+            MPU6050_Read_All(&hi2c1, SENSOR_ADDR, accel_raw, gyro_raw, &temp_raw);
+            // Convert(accel_raw, gyro_raw); // Si tienes la función de conversión activa
+        #endif
+
+        #ifdef USE_MMA845X
+            MMA845x_Read_Accel(&hi2c1, SENSOR_ADDR, accel_raw);
+            MMA845x_Convert(accel_raw); // Convierte a float en accel_g_mma
+            
+            // Ponemos el Gyro a 0 porque este sensor no tiene
+            gyro_raw[0] = 0; gyro_raw[1] = 0; gyro_raw[2] = 0;
+        #endif
+
+        // --- IMPRESIÓN CSV ---
+        // Formato: Ax, Ay, Az, Gx, Gy, Gz
         printf("%d,%d,%d,%d,%d,%d\r\n",
                accel_raw[0], accel_raw[1], accel_raw[2],
                gyro_raw[0], gyro_raw[1], gyro_raw[2]);
@@ -57,7 +93,8 @@ int main(void)
     }
 }
 
-// --- TUS CONFIGURACIONES DE HARDWARE (Tal cual me las pasaste) ---
+// --- TUS CONFIGURACIONES DE HARDWARE ---
+// (Estas son vitales, no las toques)
 
 void SystemClock_Config(void)
 {
@@ -107,7 +144,7 @@ void SystemClock_Config(void)
 static void MX_I2C1_Init(void)
 {
   hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x00F12981; // Tu timing específico
+  hi2c1.Init.Timing = 0x00F12981;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -149,8 +186,6 @@ static void MX_USART2_UART_Init(void)
 
 static void MX_GPIO_Init(void)
 {
-  // Configuración básica de pines, he quitado lo del LED específico si no lo usas
-  // para evitar errores de compilación por falta de #defines
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
