@@ -74,3 +74,26 @@ IMU-PROJECT-STM32
 ```
 *:)*
 
+## Uso del Script de Python (Visualización de Datos)
+
+El proyecto incluye una herramienta de análisis en Python (`scripts/analisis_señales.py`) que permite capturar los datos del STM32 en tiempo real, aplicar filtros digitales (Butterworth, EMA, Mediana) y generar gráficas automáticas.
+
+### 📋 Requisitos Previos
+
+Necesitas tener Python instalado. Antes de ejecutar el script, instala las librerías necesarias ejecutando este comando en tu terminal:
+
+```bash
+pip install pyserial numpy matplotlib scipy
+```
+## Instrucciones de Ejecución
+Conecta la placa STM32 a tu computadora por USB.
+
+*¡IMPORTANTE!* Cierra cualquier otro programa que esté usando el puerto Serial (como el Monitor Serie de PlatformIO, Arduino IDE o Putty). El puerto debe estar libre.
+
+Abre una terminal en la raíz del proyecto *imu-project-stm32* y ejecuta:
+```
+cd scripts
+python analisis_señales.py
+
+```
+
