@@ -1,9 +1,8 @@
 #include "main.h"
-#include "mpu6050.h"      // Driver del sensor (definido en include/mpu6050.h)
-#include "servo_driver.h" // Driver del servo (definido en include/servo_driver.h)
+#include "mpu6050.h"      // Driver modular del sensor
+#include "servo_driver.h" // Driver modular del servo
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
 
 // ================== HANDLES GLOBALES ==================
 I2C_HandleTypeDef hi2c1;
@@ -12,30 +11,24 @@ UART_HandleTypeDef huart2;
 
 // ================== VARIABLES DE APLICACIÓN ==================
 // Servo
-volatile uint8_t servo_angle  = 90;
+volatile uint8_t servo_angle = 90;
 volatile uint8_t servo_target = 90;
-volatile int8_t  servo_dir    = 1;
+volatile int8_t servo_dir = 1;
 
-// Sensores
+// Sensor MPU6050
 int16_t accel_raw[3];
 int16_t gyro_raw[3];
 int16_t temp_raw;
 float accel_g[3];
 float gyro_dps[3];
 
-// Debounce y Estados
-#define DEBOUNCE_TIME_MS 150
-volatile uint32_t last_exti_time = 0;
-
-typedef enum {
-    REPOSO = 1,
-    VIBRACION,
-    MOVIMIENTO_LENTO
-} Estado;
-
+// Máquina de Estados (Botones)
+typedef enum { REPOSO=1, VIBRACION, MOVIMIENTO_LENTO } Estado;
 volatile Estado estado_actual = REPOSO;
+volatile uint32_t last_exti_time = 0;
+#define DEBOUNCE_TIME_MS 150
 
-// ================== PROTOTIPOS HARDWARE ==================
+// ================== PROTOTIPOS DE FUNCIONES ==================
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
@@ -43,7 +36,10 @@ static void MX_I2C1_Init(void);
 static void MX_TIM1_Init(void);
 void Error_Handler(void);
 
-// Redirección printf
+// --- AQUÍ ESTÁ EL PROTOTIPO QUE FALTABA ---
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+
+// Redirección de printf para UART
 int _write(int file, char *ptr, int len) {
     HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, HAL_MAX_DELAY);
     return len;
@@ -62,60 +58,51 @@ int main(void)
 
     // 2. Inicialización de Drivers
     
-    // Arrancar PWM del Servo
+    // Servo: Arrancar PWM en TIM1 Canal 1
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-    
-    // IMPORTANTE: Para TIM1 (Advanced Timer), esto es necesario para activar la salida
+    // IMPORTANTE: Habilitar salida principal para TIM1 (Advanced Timer)
     __HAL_TIM_MOE_ENABLE(&htim1); 
 
     HAL_Delay(100);
-    
-    // Inicializar MPU usando el driver externo
+
+    // MPU6050: Inicializar usando el driver modular
+    printf("Sistema Iniciado. Configurando MPU6050...\r\n");
     MPU6050_Init(&hi2c1);
-    
-    printf("Sistema iniciado correctamente\r\n");
+    printf("MPU6050 Listo.\r\n");
 
     while (1)
     {
-        // --- TAREA A: LECTURA MPU6050 (10Hz) ---
-        static uint32_t last_mpu_read = 0;
-        if (HAL_GetTick() - last_mpu_read >= 100) 
+        // --- TAREA 1: Lectura del Sensor (10Hz) ---
+        static uint32_t last_read = 0;
+        if (HAL_GetTick() - last_read >= 100)
         {
-            last_mpu_read = HAL_GetTick();
-
-            // Usamos las funciones del archivo mpu6050.c
+            last_read = HAL_GetTick();
+            
+            // Leemos y convertimos usando las librerías externas
             MPU6050_Read_All(&hi2c1, accel_raw, gyro_raw, &temp_raw);
-            
-            // Usamos la versión nueva de conversión que guarda en accel_g y gyro_dps
             MPU6050_Convert(accel_raw, gyro_raw, accel_g, gyro_dps);
-            
-            // Imprimimos los valores crudos (puedes cambiar a accel_g[...] si prefieres ver float)
-            printf("%d,%d,%d,%d,%d,%d\r\n",
-                   accel_raw[0], accel_raw[1], accel_raw[2],
-                   gyro_raw[0], gyro_raw[1], gyro_raw[2]);
+
+            // Imprimimos CSV: Ax, Ay, Az, Gx, Gy, Gz
+            printf("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\r\n", 
+                   accel_g[0], accel_g[1], accel_g[2],
+                   gyro_dps[0], gyro_dps[1], gyro_dps[2]);
         }
 
-        // --- TAREA B: MÁQUINA DE ESTADOS (Servo Target) ---
-        switch (estado_actual)
-        {
-            case REPOSO:
-                servo_target = 90;
+        // --- TAREA 2: Lógica de Estados (Define el Objetivo del Servo) ---
+        switch (estado_actual) {
+            case REPOSO: 
+                servo_target = 90; 
                 break;
-
-            case VIBRACION:
-                // Alterna entre 30 y 150 grados cada 150ms
-                servo_target = (HAL_GetTick() % 300 < 150) ? 30 : 150;
+            case VIBRACION: 
+                // Oscila rápido entre 30 y 150 grados
+                servo_target = (HAL_GetTick() % 300 < 150) ? 30 : 150; 
                 break;
-
-            case MOVIMIENTO_LENTO:
-            {
-                static uint32_t last_move_update = 0;
-                // Control de velocidad más suave para el movimiento lento (cada 50ms)
-                if (HAL_GetTick() - last_move_update >= 50)
-                {
-                    last_move_update = HAL_GetTick();
+            case MOVIMIENTO_LENTO: {
+                static uint32_t last_move = 0;
+                // Oscila lento (barrido) cada 50ms
+                if (HAL_GetTick() - last_move >= 50) {
+                    last_move = HAL_GetTick();
                     servo_target += servo_dir;
-
                     if (servo_target >= 110) servo_dir = -1;
                     else if (servo_target <= 70) servo_dir = 1;
                 }
@@ -123,34 +110,28 @@ int main(void)
             }
         }
 
-        // --- TAREA C: CONTROL SUAVE DEL SERVO ---
+        // --- TAREA 3: Control Suave del Servo (Mueve hacia el Objetivo) ---
         if (servo_angle < servo_target) servo_angle++;
         else if (servo_angle > servo_target) servo_angle--;
-
-        // Llamamos al driver nuevo (servo_driver.c) pasando el Timer y Canal
+        
         Servo_SetAngle(&htim1, TIM_CHANNEL_1, servo_angle);
-
-        HAL_Delay(10); // Loop pacing
+        
+        HAL_Delay(10); // Pequeño delay para estabilidad del loop
     }
 }
 
-// ================== INTERRUPCIONES (Callbacks) ==================
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
+// ================== CALLBACKS (INTERRUPCIONES) ==================
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
     uint32_t now = HAL_GetTick();
     if (now - last_exti_time < DEBOUNCE_TIME_MS) return;
     last_exti_time = now;
 
-    if (GPIO_Pin == GPIO_PIN_3) {
-        estado_actual = REPOSO;
-    } else if (GPIO_Pin == GPIO_PIN_4) {
-        estado_actual = VIBRACION;
-    } else if (GPIO_Pin == GPIO_PIN_5) {
-        estado_actual = MOVIMIENTO_LENTO;
-    }
+    if (GPIO_Pin == GPIO_PIN_3) estado_actual = REPOSO;
+    else if (GPIO_Pin == GPIO_PIN_4) estado_actual = VIBRACION;
+    else if (GPIO_Pin == GPIO_PIN_5) estado_actual = MOVIMIENTO_LENTO;
 }
 
-// ================== CONFIGURACIÓN DE HARDWARE (GENERADO) ==================
+// ================== CONFIGURACIÓN DE HARDWARE (GENERADO POR CUBEMX) ==================
 
 void SystemClock_Config(void)
 {
@@ -272,6 +253,8 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
+  
+  // Llamamos a la función de configuración de pines (definida abajo)
   HAL_TIM_MspPostInit(&htim1);
 }
 
@@ -335,27 +318,23 @@ void Error_Handler(void)
   {
   }
 }
-/**
-* @brief  Esta función configura los pines PWM que el Timer necesita.
-* Fue generada por CubeMX pero faltaba en tu copiado.
-*/
+
+// === IMPLEMENTACIÓN DE LA FUNCIÓN DE CONFIGURACIÓN DE PINES PWM ===
+// Esta función conecta el Timer 1 (Canal 1) con el pin físico PA8
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef* htim)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-
   if(htim->Instance == TIM1)
   {
-    // Habilitar reloj del puerto A (donde suele estar TIM1_CH1 en PA8)
     __HAL_RCC_GPIOA_CLK_ENABLE();
-
     /**TIM1 GPIO Configuration
     PA8     ------> TIM1_CH1
     */
     GPIO_InitStruct.Pin = GPIO_PIN_8;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;     // Modo Alternativo Push-Pull
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    GPIO_InitStruct.Alternate = GPIO_AF1_TIM1;  // Conectar a la función alterna de TIM1
+    GPIO_InitStruct.Alternate = GPIO_AF1_TIM1;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
   }
 }
