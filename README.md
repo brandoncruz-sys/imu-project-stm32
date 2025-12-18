@@ -59,18 +59,21 @@ El sistema opera bajo tres estados exclusivos, controlados por interrupciones ex
 
 ## Estructura del Proyecto
 
-```text
+```
 IMU-PROJECT-STM32
 ├── include
-│   ├── main.h          # Definiciones globales
-│   ├── mpu6050.h       # Cabecera del driver del sensor
-│   └── servo_driver.h  # Cabecera del driver del servo
+│   ├── main.h               # Definiciones globales
+│   ├── mpu6050.h            # Cabecera del driver del sensor
+│   └── servo_driver.h       # Cabecera del driver del servo
+├── scripts                  # Herramientas de Análisis (Python)
+│   ├── analisis_señales.py  # Script de visualización y filtrado
+│   └── requirements.txt     # Lista de librerías necesarias
 ├── src
-│   ├── main.c          # Lógica principal y FSM
-│   ├── mpu6050.c       # Implementación protocolo I2C MPU6050
-│   └── servo_driver.c  # Implementación control PWM
-├── platformio.ini      # Configuración del compilador y placa
-└── README.md           # Documentación del proyecto
+│   ├── main.c               # Lógica principal y FSM
+│   ├── mpu6050.c            # Implementación protocolo I2C MPU6050
+│   └── servo_driver.c       # Implementación control PWM
+├── platformio.ini           # Configuración del compilador y placa
+└── README.md                # Documentación del proyecto
 ```
 *:)*
 
