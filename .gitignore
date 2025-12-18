@@ -22,3 +22,8 @@ Thumbs.db
 
 # --- Depuración ---
 *.svd
+# Ignorar datos generados por Python
+Proyecto_Final_Graficas_Paper/
+__pycache__/
+*.csv
+*.png
